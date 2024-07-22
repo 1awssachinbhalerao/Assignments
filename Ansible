@@ -34,3 +34,61 @@
     - name: Display filtered subnets
       debug:
         msg: "{{ filtered_subnets }}"
+______________________________________________________________________________________________________
+
+---
+- name: AWS Management with Ansible
+  hosts: localhost
+  gather_facts: no
+  vars:
+    aws_access_key: YOUR_ACCESS_KEY
+    aws_secret_key: YOUR_SECRET_KEY
+    aws_session_token: YOUR_SESSION_TOKEN  # Optional, if using temporary credentials
+    aws_region: us-east-1
+  tasks:
+    - name: Describe EC2 instances with uptime of at least 30 minutes
+      community.aws.ec2_instance_facts:
+        region: "{{ aws_region }}"
+        filters:
+          instance-state-name: running
+      register: ec2_instances
+
+    - name: Filter instances with uptime of at least 30 minutes
+      set_fact:
+        filtered_instances: >
+          {{
+            ec2_instances.instances | selectattr('launch_time', 'defined') | selectattr(
+              'launch_time', 'search', '^.*?(\d+)$'
+            ) | selectattr('launch_time', 'regex_replace', '^.*?(\d+)$', '\\1') | selectattr(
+              'launch_time', 'regex_replace', '^.*?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)$', '\\1'
+            ) | selectattr('launch_time', 'version_compare', '<', (ansible_date_time.iso8601_basic | to_datetime('%Y%m%dT%H%M%S') - 1800)) | list
+          }}
+
+    - name: Display filtered EC2 instances
+      debug:
+        msg: "{{ filtered_instances }}"
+
+    - name: Describe ELBs and display DNS names
+      community.aws.elb_facts:
+        region: "{{ aws_region }}"
+      register: elbs
+
+    - name: Display ELB DNS names
+      debug:
+        msg: "{{ elbs.load_balancers | map(attribute='DNSName') | list }}"
+
+    - name: Describe Internet Gateways not attached to any VPC
+      community.aws.ec2_internet_gateway_facts:
+        region: "{{ aws_region }}"
+      register: internet_gateways
+
+    - name: Filter and display Internet Gateways not attached to any VPC
+      set_fact:
+        unattached_igws: >
+          {{
+            internet_gateways.internet_gateways | selectattr('attachments', 'defined') | selectattr('attachments', 'length', 0) | list
+          }}
+
+    - name: Display unattached Internet Gateways
+      debug:
+        msg: "{{ unattached_igws }}"
