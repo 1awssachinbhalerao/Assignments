@@ -92,3 +92,83 @@ ________________________________________________________________________________
     - name: Display unattached Internet Gateways
       debug:
         msg: "{{ unattached_igws }}"
+????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
+
+---
+- name: Manage AWS Resources
+  hosts: localhost
+  gather_facts: no
+  vars_prompt:
+    - name: vpc_id
+      prompt: "Enter the VPC ID"
+      private: no
+
+    - name: subnet_ids
+      prompt: "Enter subnet IDs (comma-separated)"
+      private: no
+
+    - name: route_table_ids
+      prompt: "Enter route table IDs (comma-separated)"
+      private: no
+
+    - name: internet_gateway_id
+      prompt: "Enter the Internet Gateway ID"
+      private: no
+
+  tasks:
+    - name: Disable auto-assign IP address on subnets
+      community.aws.ec2_vpc_subnet:
+        region: us-east-1
+        subnet_id: "{{ item }}"
+        auto_assign_public_ip: no
+      loop: "{{ subnet_ids.split(',') }}"
+      register: update_subnets
+
+    - name: Disassociate subnets from route tables
+      community.aws.ec2_vpc_route_table_facts:
+        region: us-east-1
+        route_table_ids: "{{ route_table_ids.split(',') }}"
+      register: route_tables
+
+    - name: Disassociate subnets from their route tables
+      community.aws.ec2_vpc_route_table:
+        region: us-east-1
+        route_table_id: "{{ item.route_table_id }}"
+        subnet_id: "{{ item.subnet_id }}"
+        state: absent
+      loop: "{{ route_tables.route_tables | flatten | map(attribute='associations') | flatten | map(attribute='subnet_id') | list | unique }}"
+      when: item.subnet_id is defined
+
+    - name: Delete route tables
+      community.aws.ec2_vpc_route_table:
+        region: us-east-1
+        route_table_id: "{{ item }}"
+        state: absent
+      loop: "{{ route_table_ids.split(',') }}"
+      when: item != 'default'
+
+    - name: Delete subnets
+      community.aws.ec2_vpc_subnet:
+        region: us-east-1
+        subnet_id: "{{ item }}"
+        state: absent
+      loop: "{{ subnet_ids.split(',') }}"
+
+    - name: Detach Internet Gateway from VPC
+      community.aws.ec2_internet_gateway:
+        region: us-east-1
+        internet_gateway_id: "{{ internet_gateway_id }}"
+        vpc_id: "{{ vpc_id }}"
+        state: detached
+
+    - name: Delete Internet Gateway
+      community.aws.ec2_internet_gateway:
+        region: us-east-1
+        internet_gateway_id: "{{ internet_gateway_id }}"
+        state: absent
+
+    - name: Delete VPC
+      community.aws.ec2_vpc:
+        region: us-east-1
+        vpc_id: "{{ vpc_id }}"
+        state: absent
