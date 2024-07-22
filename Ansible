@@ -251,3 +251,67 @@ ________________________________________________________________________________
       ansible.builtin.shell: |
         ssh -o StrictHostKeyChecking=no -i "{{ key_name }}.pem" ec2-user@{{ private_instance.public_ip_address }} "mysql --version"
       delegate_to: localhost
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+---
+- name: Manage AWS EC2 Instances
+  hosts: localhost
+  gather_facts: no
+  vars_prompt:
+    - name: instance_ids
+      prompt: "Enter the instance IDs (comma-separated)"
+      private: no
+
+    - name: new_volume_size
+      prompt: "Enter the size of the new EBS volume (GB)"
+      private: no
+
+  tasks:
+    - name: Describe existing EC2 instances
+      community.aws.ec2_instance_facts:
+        region: us-east-1
+        instance_ids: "{{ instance_ids.split(',') }}"
+      register: instance_facts
+
+    - name: Modify instance tag (name) for each instance
+      community.aws.ec2_tag:
+        region: us-east-1
+        resource_id: "{{ item.id }}"
+        tags:
+          Name: "{{ item.id }}-modified"
+        state: present
+      loop: "{{ instance_facts.instances }}"
+      when: instance_facts.instances | length > 0
+
+    - name: Create a new EBS volume
+      community.aws.ec2_vol:
+        region: us-east-1
+        volume_size: "{{ new_volume_size }}"
+        volume_type: gp2
+        state: present
+      register: new_volume
+
+    - name: Attach the new EBS volume to the first instance
+      community.aws.ec2_vol:
+        region: us-east-1
+        volume_id: "{{ new_volume.volume_id }}"
+        instance_id: "{{ instance_facts.instances[0].id }}"
+        device_name: /dev/xvdf
+        state: attached
+
+    - name: Reboot instances with tags starting with "app"
+      community.aws.ec2_instance:
+        region: us-east-1
+        instance_ids: "{{ item.id }}"
+        state: rebooted
+      loop: "{{ instance_facts.instances }}"
+      when: item.tags.Name is defined and item.tags.Name.startswith('app')
+
+    - name: Terminate all instances
+      community.aws.ec2_instance:
+        region: us-east-1
+        instance_ids: "{{ instance_ids.split(',') }}"
+        state: absent
+      when: instance_ids | length > 0
