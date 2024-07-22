@@ -48,3 +48,186 @@ output = table
 aws s3 ls --profile myprofile
 
 aws ec2 describe-instances --profile myprofile
+
+
+#################################################################################
+
+
+import boto3
+from botocore.exceptions import NoCredentialsError, PartialCredentialsError
+import time
+
+# Initialize the AWS clients
+ec2 = boto3.client('ec2')
+s3 = boto3.client('s3')
+
+# Define instance configurations
+public_instance_config = {
+    'ImageId': 'ami-xxxxxxxx',  # Replace with the desired AMI ID
+    'InstanceType': 't2.micro',
+    'KeyName': 'your-key-pair',  # Replace with your key pair
+    'SecurityGroupIds': ['sg-xxxxxxxx'],  # Replace with your security group ID
+    'MinCount': 1,
+    'MaxCount': 1,
+    'UserData': """#!/bin/bash
+        apt-get update
+        apt-get install -y apache2 php
+        systemctl start apache2
+        systemctl enable apache2
+    """
+}
+
+private_instance_config = {
+    'ImageId': 'ami-xxxxxxxx',  # Replace with the desired AMI ID
+    'InstanceType': 't2.micro',
+    'KeyName': 'your-key-pair',  # Replace with your key pair
+    'SecurityGroupIds': ['sg-xxxxxxxx'],  # Replace with your security group ID
+    'MinCount': 1,
+    'MaxCount': 1,
+    'BlockDeviceMappings': [
+        {
+            'DeviceName': '/dev/sda1',
+            'Ebs': {
+                'VolumeSize': 8  # Default size
+            }
+        },
+        {
+            'DeviceName': '/dev/xvdb',
+            'Ebs': {
+                'VolumeSize': 4  # Application data volume size
+            }
+        }
+    ],
+    'UserData': """#!/bin/bash
+        apt-get update
+        apt-get install -y mysql-server
+        systemctl start mysql
+        systemctl enable mysql
+    """
+}
+
+def create_instance(config):
+    try:
+        response = ec2.run_instances(**config)
+        instance_id = response['Instances'][0]['InstanceId']
+        print(f"Instance {instance_id} launched")
+        return instance_id
+    except (NoCredentialsError, PartialCredentialsError) as e:
+        print(f"Error: {e}")
+        return None
+
+def wait_for_instance_running(instance_id):
+    print(f"Waiting for instance {instance_id} to start...")
+    ec2.get_waiter('instance_running').wait(InstanceIds=[instance_id])
+    print(f"Instance {instance_id} is running")
+
+def check_instance_status(instance_id):
+    response = ec2.describe_instances(InstanceIds=[instance_id])
+    instance = response['Reservations'][0]['Instances'][0]
+    print(f"Instance ID: {instance_id}")
+    print(f"Public IP: {instance.get('PublicIpAddress', 'N/A')}")
+    print(f"Private IP: {instance.get('PrivateIpAddress', 'N/A')}")
+    print(f"Instance State: {instance['State']['Name']}")
+
+def main():
+    print("Creating public instance...")
+    public_instance_id = create_instance(public_instance_config)
+    if public_instance_id:
+        wait_for_instance_running(public_instance_id)
+        check_instance_status(public_instance_id)
+    
+    print("Creating private instance...")
+    private_instance_id = create_instance(private_instance_config)
+    if private_instance_id:
+        wait_for_instance_running(private_instance_id)
+        check_instance_status(private_instance_id)
+
+if __name__ == "__main__":
+    main()
+
+--------------------------------------------------------------------
+
+import boto3
+from botocore.exceptions import NoCredentialsError, PartialCredentialsError
+
+# Initialize the AWS EC2 client
+ec2 = boto3.client('ec2')
+
+def tag_instance(instance_id, tag_name, tag_value):
+    try:
+        ec2.create_tags(
+            Resources=[instance_id],
+            Tags=[{'Key': tag_name, 'Value': tag_value}]
+        )
+        print(f"Instance {instance_id} tagged with {tag_name} = {tag_value}")
+    except (NoCredentialsError, PartialCredentialsError) as e:
+        print(f"Error: {e}")
+
+def create_and_attach_volume(instance_id, volume_size):
+    try:
+        # Create a new EBS volume
+        volume = ec2.create_volume(
+            AvailabilityZone='us-east-1a',  # Replace with the appropriate AZ
+            Size=volume_size,
+            VolumeType='gp2'
+        )
+        volume_id = volume['VolumeId']
+        print(f"Created EBS volume {volume_id} with size {volume_size}GB")
+
+        # Wait for the volume to be available
+        ec2.get_waiter('volume_available').wait(VolumeIds=[volume_id])
+        print(f"Volume {volume_id} is now available")
+
+        # Attach the volume to the instance
+        ec2.attach_volume(
+            VolumeId=volume_id,
+            InstanceId=instance_id,
+            Device='/dev/xvdf'  # Replace with appropriate device name if necessary
+        )
+        print(f"Attached volume {volume_id} to instance {instance_id}")
+    except (NoCredentialsError, PartialCredentialsError) as e:
+        print(f"Error: {e}")
+
+def reboot_instance(instance_id):
+    try:
+        ec2.reboot_instances(InstanceIds=[instance_id])
+        print(f"Reboot command sent to instance {instance_id}")
+    except (NoCredentialsError, PartialCredentialsError) as e:
+        print(f"Error: {e}")
+
+def terminate_all_instances():
+    try:
+        # List all instances
+        response = ec2.describe_instances()
+        instances = [i['InstanceId'] for r in response['Reservations'] for i in r['Instances']]
+
+        if not instances:
+            print("No instances to terminate.")
+            return
+
+        # Terminate all instances
+        ec2.terminate_instances(InstanceIds=instances)
+        print(f"Termination command sent for instances: {instances}")
+    except (NoCredentialsError, PartialCredentialsError) as e:
+        print(f"Error: {e}")
+
+def main():
+    # Example instance IDs
+    instance_ids = ['i-xxxxxxxxxxxxxxxxx', 'i-yyyyyyyyyyyyyyyyy']  # Replace with your instance IDs
+
+    # Modify instance tags
+    for instance_id in instance_ids:
+        tag_instance(instance_id, 'Name', 'NewInstanceName')
+
+    # Create and attach a new EBS volume to the first instance
+    create_and_attach_volume(instance_ids[0], 2)
+
+    # Reboot a specific instance (e.g., the first instance)
+    reboot_instance(instance_ids[0])
+
+    # Terminate all instances
+    terminate_all_instances()
+
+if __name__ == "__main__":
+    main()
+
