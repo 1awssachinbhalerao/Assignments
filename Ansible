@@ -172,3 +172,82 @@ ________________________________________________________________________________
         region: us-east-1
         vpc_id: "{{ vpc_id }}"
         state: absent
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+---
+- name: Provision and configure AWS instances
+  hosts: localhost
+  gather_facts: no
+  vars:
+    aws_region: us-east-1
+    instance_type: t2.micro
+    key_name: your_key_pair_name  # Replace with your key pair name
+    security_group_id: sg-xxxxxxxx  # Replace with your security group ID
+    subnet_id: subnet-xxxxxxxx  # Replace with your subnet ID
+    public_ami: ami-xxxxxxxx  # Replace with your AMI ID for the public instance
+    private_ami: ami-xxxxxxxx  # Replace with your AMI ID for the private instance
+    public_instance_name: public_instance
+    private_instance_name: private_instance
+    public_instance_id: ""
+    private_instance_id: ""
+
+  tasks:
+    - name: Launch public EC2 instance
+      community.aws.ec2:
+        region: "{{ aws_region }}"
+        image: "{{ public_ami }}"
+        instance_type: "{{ instance_type }}"
+        key_name: "{{ key_name }}"
+        security_groups: "{{ security_group_id }}"
+        subnet_id: "{{ subnet_id }}"
+        assign_public_ip: yes
+        wait: yes
+        count: 1
+      register: public_instance
+
+    - name: Set public instance ID
+      set_fact:
+        public_instance_id: "{{ public_instance.instances[0].id }}"
+
+    - name: Launch private EC2 instance
+      community.aws.ec2:
+        region: "{{ aws_region }}"
+        image: "{{ private_ami }}"
+        instance_type: "{{ instance_type }}"
+        key_name: "{{ key_name }}"
+        security_groups: "{{ security_group_id }}"
+        subnet_id: "{{ subnet_id }}"
+        wait: yes
+        count: 1
+        block_device_mappings:
+          - device_name: /dev/xvda
+            ebs:
+              volume_size: 8
+          - device_name: /dev/xvdb
+            ebs:
+              volume_size: 2
+      register: private_instance
+
+    - name: Set private instance ID
+      set_fact:
+        private_instance_id: "{{ private_instance.instances[0].id }}"
+
+    - name: Configure public instance with Apache and PHP
+      ansible.builtin.shell: |
+        ssh -o StrictHostKeyChecking=no -i "{{ key_name }}.pem" ec2-user@{{ public_instance.public_ip_address }} "sudo yum update -y && sudo yum install -y httpd php && sudo systemctl start httpd && sudo systemctl enable httpd"
+      delegate_to: localhost
+
+    - name: Configure private instance with MariaDB
+      ansible.builtin.shell: |
+        ssh -o StrictHostKeyChecking=no -i "{{ key_name }}.pem" ec2-user@{{ private_instance.public_ip_address }} "sudo yum update -y && sudo yum install -y mariadb-server && sudo systemctl start mariadb && sudo systemctl enable mariadb"
+      delegate_to: localhost
+
+    - name: Verify Apache installation on public instance
+      ansible.builtin.shell: |
+        ssh -o StrictHostKeyChecking=no -i "{{ key_name }}.pem" ec2-user@{{ public_instance.public_ip_address }} "curl http://localhost"
+      delegate_to: localhost
+
+    - name: Verify MariaDB installation on private instance
+      ansible.builtin.shell: |
+        ssh -o StrictHostKeyChecking=no -i "{{ key_name }}.pem" ec2-user@{{ private_instance.public_ip_address }} "mysql --version"
+      delegate_to: localhost
