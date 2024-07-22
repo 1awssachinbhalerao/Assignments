@@ -231,3 +231,153 @@ def main():
 if __name__ == "__main__":
     main()
 
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+import boto3
+
+# Initialize the EC2 client
+ec2_client = boto3.client('ec2')
+
+# Define user data for Apache, PHP, and MySQL/MariaDB installation
+public_instance_user_data = """#!/bin/bash
+yum update -y
+yum install -y httpd
+systemctl start httpd
+systemctl enable httpd
+yum install -y php
+"""
+
+private_instance_user_data = """#!/bin/bash
+yum update -y
+yum install -y mysql-server
+systemctl start mysqld
+systemctl enable mysqld
+"""
+
+# Create a public EC2 instance with Apache and PHP
+public_instance = ec2_client.run_instances(
+    ImageId='ami-0c55b159cbfafe1f0',  # Replace with your desired AMI ID
+    InstanceType='t2.micro',          # Replace with your desired instance type
+    KeyName='your-key-pair-name',      # Replace with your EC2 Key Pair name
+    MinCount=1,
+    MaxCount=1,
+    UserData=public_instance_user_data,
+    AssociatePublicIpAddress=True,     # Public IP address
+    TagSpecifications=[{
+        'ResourceType': 'instance',
+        'Tags': [{'Key': 'Name', 'Value': 'PublicInstance'}]
+    }]
+)
+
+public_instance_id = public_instance['Instances'][0]['InstanceId']
+print(f"Public EC2 instance created with ID: {public_instance_id}")
+
+# Create a private EC2 instance with EBS volumes
+private_instance = ec2_client.run_instances(
+    ImageId='ami-0c55b159cbfafe1f0',  # Replace with your desired AMI ID
+    InstanceType='t2.micro',          # Replace with your desired instance type
+    KeyName='your-key-pair-name',      # Replace with your EC2 Key Pair name
+    MinCount=1,
+    MaxCount=1,
+    UserData=private_instance_user_data,
+    AssociatePublicIpAddress=False,    # Private IP address
+    TagSpecifications=[{
+        'ResourceType': 'instance',
+        'Tags': [{'Key': 'Name', 'Value': 'PrivateInstance'}]
+    }]
+)
+
+private_instance_id = private_instance['Instances'][0]['InstanceId']
+print(f"Private EC2 instance created with ID: {private_instance_id}")
+
+# Create EBS volumes
+root_volume = ec2_client.create_volume(
+    Size=8,  # Default size for root volume
+    AvailabilityZone='us-east-1a',  # Replace with the correct availability zone
+    VolumeType='gp2'
+)
+
+data_volume = ec2_client.create_volume(
+    Size=4,  # Size for application data
+    AvailabilityZone='us-east-1a',  # Replace with the correct availability zone
+    VolumeType='gp2'
+)
+
+print(f"Root EBS volume created with ID: {root_volume['VolumeId']}")
+print(f"Data EBS volume created with ID: {data_volume['VolumeId']}")
+
+# Attach EBS volumes to the private instance
+ec2_client.attach_volume(
+    VolumeId=root_volume['VolumeId'],
+    InstanceId=private_instance_id,
+    Device='/dev/sda1'  # Root volume device name
+)
+
+ec2_client.attach_volume(
+    VolumeId=data_volume['VolumeId'],
+    InstanceId=private_instance_id,
+    Device='/dev/sdf'  # Application data volume device name
+)
+
+print("EBS volumes attached to the private instance.")
+
+# You will need to use an SSH client to log into the instances and verify configurations.
+# For example, use `ssh` command to connect and check the setup.
+
+print("Instances created and configured. Please SSH into the instances to verify.")
+
+-----------------------------------------------------------------------------------------------------
+
+import boto3
+
+# Initialize the EC2 client
+ec2_client = boto3.client('ec2')
+
+def modify_instance_name(instance_id, new_name):
+    ec2_client.create_tags(
+        Resources=[instance_id],
+        Tags=[{'Key': 'Name', 'Value': new_name}]
+    )
+    print(f"Instance {instance_id} renamed to {new_name}")
+
+def create_and_attach_ebs_volume(instance_id, size=2):
+    # Create a new EBS volume
+    volume = ec2_client.create_volume(
+        Size=size,
+        AvailabilityZone='us-east-1a',  # Replace with the correct availability zone
+        VolumeType='gp2'
+    )
+    volume_id = volume['VolumeId']
+    print(f"EBS volume created with ID: {volume_id}")
+
+    # Attach the EBS volume to the instance
+    ec2_client.attach_volume(
+        VolumeId=volume_id,
+        InstanceId=instance_id,
+        Device='/dev/sdg'  # Choose an appropriate device name
+    )
+    print(f"EBS volume {volume_id} attached to instance {instance_id}")
+
+def reboot_instance(instance_id):
+    ec2_client.reboot_instances(InstanceIds=[instance_id])
+    print(f"Instance {instance_id} is rebooting.")
+
+def terminate_all_instances():
+    # Describe all instances
+    instances = ec2_client.describe_instances()
+    instance_ids = [instance['InstanceId'] for reservation in instances['Reservations'] for instance in reservation['Instances']]
+    
+    # Terminate all instances
+    ec2_client.terminate_instances(InstanceIds=instance_ids)
+    print(f"Terminated instances: {instance_ids}")
+
+# Replace these with your actual instance IDs
+instance_id_to_modify = 'i-0abcdef1234567890'  # Replace with your instance ID
+instance_id_to_attach_volume = 'i-0abcdef1234567890'  # Replace with your instance ID
+
+# Example usage
+modify_instance_name(instance_id_to_modify, 'NewInstanceName')
+create_and_attach_ebs_volume(instance_id_to_attach_volume)
+reboot_instance(instance_id_to_modify)
+terminate_all_instances()
