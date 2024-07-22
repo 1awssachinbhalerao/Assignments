@@ -460,3 +460,73 @@ def main():
 if __name__ == "__main__":
     main()
 
+$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+
+import boto3
+
+# Initialize the S3 client
+s3_client = boto3.client('s3')
+
+def list_buckets():
+    response = s3_client.list_buckets()
+    return [bucket['Name'] for bucket in response['Buckets']]
+
+def rename_object(bucket_name, old_key, new_key):
+    copy_source = {'Bucket': bucket_name, 'Key': old_key}
+    s3_client.copy_object(CopySource=copy_source, Bucket=bucket_name, Key=new_key)
+    s3_client.delete_object(Bucket=bucket_name, Key=old_key)
+    print(f"Renamed object {old_key} to {new_key} in bucket {bucket_name}")
+
+def block_public_access(bucket_name):
+    s3_client.put_bucket_acl(
+        Bucket=bucket_name,
+        ACL='private'
+    )
+    s3_client.put_bucket_policy(
+        Bucket=bucket_name,
+        Policy='{}'
+    )
+    print(f"Blocked public access for bucket {bucket_name}")
+
+def delete_all_buckets():
+    buckets = list_buckets()
+    for bucket_name in buckets:
+        print(f"Deleting bucket: {bucket_name}")
+        # List objects to delete all of them
+        objects = s3_client.list_objects_v2(Bucket=bucket_name)
+        if 'Contents' in objects:
+            for obj in objects['Contents']:
+                s3_client.delete_object(Bucket=bucket_name, Key=obj['Key'])
+                print(f"Deleted object {obj['Key']} from bucket {bucket_name}")
+        
+        # Delete the bucket
+        s3_client.delete_bucket(Bucket=bucket_name)
+        print(f"Deleted bucket {bucket_name}")
+
+def main():
+    print("Existing S3 Buckets:")
+    buckets = list_buckets()
+    for idx, bucket in enumerate(buckets, 1):
+        print(f"{idx}. {bucket}")
+
+    # Rename an object
+    bucket_name = input("Enter the bucket name to rename an object: ")
+    old_key = input("Enter the old object key (file name) to rename: ")
+    new_key = input("Enter the new object key (file name) for the renamed object: ")
+    rename_object(bucket_name, old_key, new_key)
+
+    # Block public access for a bucket
+    bucket_name = input("Enter the bucket name to block public access: ")
+    block_public_access(bucket_name)
+
+    # Delete all buckets
+    confirm = input("Are you sure you want to delete all buckets and their contents? (yes/no): ")
+    if confirm.lower() == 'yes':
+        delete_all_buckets()
+    else:
+        print("Operation cancelled.")
+
+if __name__ == "__main__":
+    main()
