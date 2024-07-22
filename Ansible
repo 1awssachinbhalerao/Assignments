@@ -1,0 +1,36 @@
+---
+- name: AWS Management with Ansible
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Ensure awscli is installed
+      pip:
+        name: awscli
+        state: present
+
+    - name: List route tables in the availability zone ap-south-1b
+      community.aws.ec2_vpc_route_table_facts:
+        region: ap-south-1
+        filters:
+          availabilityZone: ap-south-1b
+      register: route_tables
+
+    - name: Display route tables
+      debug:
+        msg: "{{ route_tables.route_tables }}"
+
+    - name: List subnets with tags 'web' or 'db'
+      community.aws.ec2_vpc_subnet_facts:
+        region: ap-south-1
+      register: subnets
+
+    - name: Filter subnets with tags 'web' or 'db'
+      set_fact:
+        filtered_subnets: >
+          {{
+            subnets.subnets | selectattr('tags', 'defined') | selectattr('tags', 'match', 'web|db') | list
+          }}
+
+    - name: Display filtered subnets
+      debug:
+        msg: "{{ filtered_subnets }}"
