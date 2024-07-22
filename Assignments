@@ -35,3 +35,16 @@ def list_s3_buckets():
 if __name__ == "__main__":
     list_ec2_instances()
     list_s3_buckets()
+
+_______________________________________________________
+
+
+aws configure --profile myprofile
+
+[profile myprofile]
+output = table
+
+
+aws s3 ls --profile myprofile
+
+aws ec2 describe-instances --profile myprofile
