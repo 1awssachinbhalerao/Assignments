@@ -381,3 +381,82 @@ modify_instance_name(instance_id_to_modify, 'NewInstanceName')
 create_and_attach_ebs_volume(instance_id_to_attach_volume)
 reboot_instance(instance_id_to_modify)
 terminate_all_instances()
+
+++++++++++++++++++++++++++++++++++++++++++++++++
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+import boto3
+
+# Initialize the EC2 client
+ec2_client = boto3.client('ec2')
+
+def get_vpc_id():
+    # Retrieve all VPCs and select one. Adjust if needed.
+    vpcs = ec2_client.describe_vpcs()
+    return vpcs['Vpcs'][0]['VpcId']
+
+def get_subnet_ids(vpc_id):
+    subnets = ec2_client.describe_subnets(Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}])
+    return [subnet['SubnetId'] for subnet in subnets['Subnets']]
+
+def get_route_table_ids(vpc_id):
+    route_tables = ec2_client.describe_route_tables(Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}])
+    return [rt['RouteTableId'] for rt in route_tables['RouteTables']]
+
+def get_internet_gateway_id(vpc_id):
+    igws = ec2_client.describe_internet_gateways(Filters=[{'Name': 'attachment.vpc-id', 'Values': [vpc_id]}])
+    return igws['InternetGateways'][0]['InternetGatewayId'] if igws['InternetGateways'] else None
+
+def disable_auto_assign_public_ip(subnet_ids):
+    for subnet_id in subnet_ids:
+        ec2_client.modify_subnet_attribute(SubnetId=subnet_id, MapPublicIpOnLaunch={'Value': False})
+        print(f"Disabled auto-assign public IP for subnet {subnet_id}")
+
+def disassociate_subnets_from_route_tables(route_table_ids):
+    for rt_id in route_table_ids:
+        associations = ec2_client.describe_route_tables(RouteTableIds=[rt_id])['RouteTables'][0]['Associations']
+        for assoc in associations:
+            if 'Main' not in assoc or not assoc['Main']:
+                ec2_client.disassociate_route_table(AssociationId=assoc['AssociationId'])
+                print(f"Disassociated route table {rt_id} from subnet {assoc['SubnetId']}")
+
+def delete_route_tables(route_table_ids):
+    for rt_id in route_table_ids:
+        ec2_client.delete_route_table(RouteTableId=rt_id)
+        print(f"Deleted route table {rt_id}")
+
+def delete_subnets(subnet_ids):
+    for subnet_id in subnet_ids:
+        ec2_client.delete_subnet(SubnetId=subnet_id)
+        print(f"Deleted subnet {subnet_id}")
+
+def detach_and_delete_internet_gateway(vpc_id, igw_id):
+    if igw_id:
+        ec2_client.detach_internet_gateway(InternetGatewayId=igw_id, VpcId=vpc_id)
+        print(f"Detached internet gateway {igw_id} from VPC {vpc_id}")
+        ec2_client.delete_internet_gateway(InternetGatewayId=igw_id)
+        print(f"Deleted internet gateway {igw_id}")
+
+def delete_vpc(vpc_id):
+    ec2_client.delete_vpc(VpcId=vpc_id)
+    print(f"Deleted VPC {vpc_id}")
+
+def main():
+    vpc_id = get_vpc_id()
+    subnet_ids = get_subnet_ids(vpc_id)
+    route_table_ids = get_route_table_ids(vpc_id)
+    igw_id = get_internet_gateway_id(vpc_id)
+
+    # Perform operations
+    disable_auto_assign_public_ip(subnet_ids)
+    disassociate_subnets_from_route_tables(route_table_ids)
+    delete_route_tables(route_table_ids)
+    delete_subnets(subnet_ids)
+    detach_and_delete_internet_gateway(vpc_id, igw_id)
+    delete_vpc(vpc_id)
+
+if __name__ == "__main__":
+    main()
+
