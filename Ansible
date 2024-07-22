@@ -315,3 +315,97 @@ ________________________________________________________________________________
         instance_ids: "{{ instance_ids.split(',') }}"
         state: absent
       when: instance_ids | length > 0
+
+
+@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@
+
+Write Ansible playbook to perform the following tasks on the existing S3 buckets.
+
+Rename an existing object (file) of any bucket Block public access of an existing bucket object
+
+• Block public access of an existing bucket
+
+• Delete all the buckets created including files
+
+Note: Do not hard code the input. Describe the existing S3 buckets and provide the bucket name during run time.
+
+Refer Ansible documentation to know more details about S3 service modules.
+
+---
+- name: Manage AWS S3 Buckets
+  hosts: localhost
+  gather_facts: no
+  vars_prompt:
+    - name: bucket_names
+      prompt: "Enter the bucket names (comma-separated)"
+      private: no
+
+    - name: object_to_rename
+      prompt: "Enter the object key (file path) to rename (e.g., oldfolder/oldfile.txt)"
+      private: no
+
+    - name: new_object_key
+      prompt: "Enter the new object key (file path) after renaming (e.g., newfolder/newfile.txt)"
+      private: no
+
+  tasks:
+    - name: Describe existing S3 buckets
+      community.aws.s3_bucket_facts:
+        region: us-east-1
+        bucket: "{{ item }}"
+      loop: "{{ bucket_names.split(',') }}"
+      register: bucket_facts
+
+    - name: Rename an existing object in any bucket
+      community.aws.s3_object:
+        bucket: "{{ item.bucket }}"
+        object: "{{ object_to_rename }}"
+        dest: "{{ new_object_key }}"
+        state: moved
+      loop: "{{ bucket_facts.results }}"
+      when: item.bucket is defined
+
+    - name: Block public access of existing bucket objects
+      community.aws.s3_bucket:
+        bucket: "{{ item.bucket }}"
+        acl: private
+        region: us-east-1
+        state: present
+      loop: "{{ bucket_facts.results }}"
+      when: item.bucket is defined
+
+    - name: Block public access of existing buckets
+      community.aws.s3_bucket:
+        bucket: "{{ item.bucket }}"
+        policy: |
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Deny",
+                "Principal": "*",
+                "Action": "s3:GetObject",
+                "Resource": "arn:aws:s3:::{{ item.bucket }}/*",
+                "Condition": {
+                  "StringNotEquals": {
+                    "aws:Referer": "https://example.com"
+                  }
+                }
+              }
+            ]
+          }
+        region: us-east-1
+        state: present
+      loop: "{{ bucket_facts.results }}"
+      when: item.bucket is defined
+
+    - name: Delete all buckets including their files
+      community.aws.s3_bucket:
+        bucket: "{{ item.bucket }}"
+        region: us-east-1
+        state: absent
+      loop: "{{ bucket_facts.results }}"
+      when: item.bucket is defined
+
