@@ -1,0 +1,37 @@
+pip install boto3
+
+
+import boto3
+
+def list_ec2_instances():
+    # Using resource method
+    ec2_resource = boto3.resource('ec2')
+    print("Instances (using resource method):")
+    for instance in ec2_resource.instances.all():
+        print(f"Instance ID: {instance.id}, State: {instance.state['Name']}")
+    
+    # Using client method
+    ec2_client = boto3.client('ec2')
+    response = ec2_client.describe_instances()
+    print("\nInstances (using client method):")
+    for reservation in response['Reservations']:
+        for instance in reservation['Instances']:
+            print(f"Instance ID: {instance['InstanceId']}, State: {instance['State']['Name']}")
+
+def list_s3_buckets():
+    # Using resource method
+    s3_resource = boto3.resource('s3')
+    print("\nS3 Buckets (using resource method):")
+    for bucket in s3_resource.buckets.all():
+        print(f"Bucket Name: {bucket.name}")
+    
+    # Using client method
+    s3_client = boto3.client('s3')
+    response = s3_client.list_buckets()
+    print("\nS3 Buckets (using client method):")
+    for bucket in response['Buckets']:
+        print(f"Bucket Name: {bucket['Name']}")
+
+if __name__ == "__main__":
+    list_ec2_instances()
+    list_s3_buckets()
